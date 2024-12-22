@@ -17,7 +17,7 @@ const Earth = dynamic(() => import('@/components/Earth/Earth'), {
 
 export default function Home() {
   const [displayMode, setDisplayMode] = useState<DisplayMode>('temperature');
-  const [key, setKey] = useState(0);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [dimensions, setDimensions] = useState(() => ({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
     height: typeof window !== 'undefined' ? window.innerHeight : 800
@@ -33,9 +33,7 @@ export default function Home() {
       });
     };
 
-    // 初期サイズを設定
     handleResize();
-
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
@@ -45,16 +43,16 @@ export default function Home() {
   }, []);
 
   const handleReload = useCallback(() => {
-    setKey(prev => prev + 1);
+    setRefreshTrigger(prev => prev + 1);
   }, []);
 
   return (
     <main className="relative w-full h-screen bg-black">
       <Earth
-        key={key}
         width={dimensions.width}
         height={dimensions.height}
         displayMode={displayMode}
+        refreshTrigger={refreshTrigger}
       />
       <Controls
         displayMode={displayMode}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import ThreeGlobe from 'three-globe';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -14,166 +14,199 @@ interface EarthProps {
   width: number;
   height: number;
   displayMode: 'temperature' | 'precipitation' | 'wind' | 'composite';
+  refreshTrigger: number;
 }
 
-const Earth: React.FC<EarthProps> = ({ width, height, displayMode }) => {
+const Earth: React.FC<EarthProps> = ({ width, height, displayMode, refreshTrigger }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const globeRef = useRef<ThreeGlobe | null>(null);
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const requestRef = useRef<number | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
-  const { weatherData, isLoading, error } = useWeatherData();
+  const texturesRef = useRef<{
+    earth?: THREE.Texture;
+    topology?: THREE.Texture;
+    clouds?: THREE.Texture;
+  }>({});
+  
+  const { weatherData, isLoading, error, refetch } = useWeatherData();
 
-  // Three.jsシーンの初期化
-  useEffect(() => {
-    if (!containerRef.current) return;
+  // Preload textures once
+  const loadTextures = useCallback(async () => {
+    if (Object.keys(texturesRef.current).length > 0) return;
 
-    console.log('Initializing Three.js scene...');
-
-    // シーンのセットアップ
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x000000);
-
-    // カメラのセットアップ
-    const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
-    camera.position.z = 200;
-    camera.position.y = 50;
-
-    // レンダラーのセットアップ
-    const renderer = new THREE.WebGLRenderer({ 
-      antialias: true,
-      powerPreference: "high-performance"
-    });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-    // コンテナのクリアと追加
-    containerRef.current.innerHTML = '';
-    containerRef.current.appendChild(renderer.domElement);
-
-    // Lighting setup
-    console.log('Setting up lights...');
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.0); // 強度を上げる
-    scene.add(ambientLight);
-
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0); // 強度を上げる
-    directionalLight.position.set(1, 1, 1);
-    scene.add(directionalLight);
-
-    const pointLight = new THREE.PointLight(0xffffff, 1.0); // 強度を上げる
-    pointLight.position.set(-10, -10, -10);
-    scene.add(pointLight);
-
-    // グローブの初期化
-    console.log('Initializing Globe...');
-    // テクスチャローダーの初期化
     const textureLoader = new THREE.TextureLoader();
-    console.log('Loading textures...');
-    
-    const earthTexture = textureLoader.load(
-      '/textures/earth-blue-marble.jpg',
-      () => console.log('Earth texture loaded successfully'),
-      undefined,
-      (error) => console.error('Error loading earth texture:', error)
-    );
-    
-    const topologyTexture = textureLoader.load(
-      '/textures/earth-topology.png',
-      () => console.log('Topology texture loaded successfully'),
-      undefined,
-      (error) => console.error('Error loading topology texture:', error)
-    );
-    
-    const cloudsTexture = textureLoader.load(
-      '/textures/clouds.png',
-      () => console.log('Clouds texture loaded successfully'),
-      undefined,
-      (error) => console.error('Error loading clouds texture:', error)
-    );
-
-    // Globe initialization
-    console.log('Creating Globe...');
-    const globe = new ThreeGlobe({
-      animateIn: false,
-      waitForGlobeReady: true
-    });
-
-    // Set globe properties
-    globe.globeImageUrl('/textures/earth-blue-marble.jpg');
-    globe.bumpImageUrl('/textures/earth-topology.png');
-    globe.atmosphereColor('#1B66C9');
-    globe.atmosphereAltitude(0.25);
-
-    // グローブのマテリアル設定
-    globe.globeMaterial(new THREE.MeshPhongMaterial({
-      map: earthTexture,
-      bumpMap: topologyTexture,
-      bumpScale: 10,
-      shininess: 0.5
-    }));
-
-    // 雲レイヤーの追加
-    const cloudsMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(100.5, 64, 64), // 地球より少し大きいサイズ
-      new THREE.MeshPhongMaterial({
-        map: cloudsTexture,
-        transparent: true,
-        opacity: 0.4
-      })
-    );
-    globe.add(cloudsMesh);
-
-    // 雲の回転アニメーション用の参照を保持
-    const cloudsRef = cloudsMesh;
-
-    globeRef.current = globe;
-    scene.add(globe);
-
-    // コントロールのセットアップ
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
-    controls.minDistance = 150;
-    controls.maxDistance = 400;
-    controls.enablePan = false;
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.5;
-    controlsRef.current = controls;
-
-    // Animation loop
-    let frameCount = 0;
-    const animate = () => {
-      requestRef.current = requestAnimationFrame(animate);
-      if (globeRef.current) {
-        globeRef.current.rotation.y += 0.001;
-        // 最初の数フレームだけログを出力
-        if (frameCount < 5) {
-          console.log('Rendering frame:', frameCount);
-          frameCount++;
-        }
-      }
-      // 雲を地球とは異なる速度で回転
-      cloudsRef.rotation.y += 0.0005;
-      controls.update();
-      renderer.render(scene, camera);
+    const loadTexture = (url: string) => {
+      return new Promise<THREE.Texture>((resolve, reject) => {
+        textureLoader.load(
+          url,
+          (texture) => resolve(texture),
+          undefined,
+          (error) => reject(error)
+        );
+      });
     };
 
-    animate();
+    try {
+      const [earth, topology, clouds] = await Promise.all([
+        loadTexture('/textures/earth-blue-marble.jpg'),
+        loadTexture('/textures/earth-topology.png'),
+        loadTexture('/textures/clouds.png'),
+      ]);
 
-    // クリーンアップ
+      texturesRef.current = { earth, topology, clouds };
+    } catch (error) {
+      console.error('Error loading textures:', error);
+    }
+  }, []);
+
+  // Effect for handling refresh
+  useEffect(() => {
+    if (refreshTrigger > 0) {
+      refetch();
+    }
+  }, [refreshTrigger, refetch]);
+
+  // Initialize Three.js scene
+  useEffect(() => {
+    let mounted = true;
+
+    const init = async () => {
+      if (!containerRef.current) return;
+
+      // Load textures first
+      await loadTextures();
+      if (!mounted) return;
+
+      // Scene setup
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x000000);
+      sceneRef.current = scene;
+
+      // Camera setup
+      const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+      camera.position.z = 200;
+      camera.position.y = 50;
+      cameraRef.current = camera;
+
+      // Renderer setup
+      const renderer = new THREE.WebGLRenderer({ 
+        antialias: true,
+        powerPreference: "high-performance"
+      });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      rendererRef.current = renderer;
+
+      // Clear container and add renderer
+      containerRef.current.innerHTML = '';
+      containerRef.current.appendChild(renderer.domElement);
+
+      // Lighting setup
+      const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+      scene.add(ambientLight);
+
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0);
+      directionalLight.position.set(1, 1, 1);
+      scene.add(directionalLight);
+
+      const pointLight = new THREE.PointLight(0xffffff, 1.0);
+      pointLight.position.set(-10, -10, -10);
+      scene.add(pointLight);
+
+      // Globe setup
+      const globe = new ThreeGlobe({
+        animateIn: false,
+        waitForGlobeReady: true
+      });
+
+      if (texturesRef.current.earth && texturesRef.current.topology && texturesRef.current.clouds) {
+        globe.globeMaterial(new THREE.MeshPhongMaterial({
+          map: texturesRef.current.earth,
+          bumpMap: texturesRef.current.topology,
+          bumpScale: 10,
+          shininess: 0.5
+        }));
+
+        // Add clouds layer
+        const cloudsMesh = new THREE.Mesh(
+          new THREE.SphereGeometry(100.5, 64, 64),
+          new THREE.MeshPhongMaterial({
+            map: texturesRef.current.clouds,
+            transparent: true,
+            opacity: 0.4
+          })
+        );
+        globe.add(cloudsMesh);
+      }
+
+      globe.atmosphereColor('#1B66C9');
+      globe.atmosphereAltitude(0.25);
+
+      globeRef.current = globe;
+      scene.add(globe);
+
+      // Controls setup
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.minDistance = 150;
+      controls.maxDistance = 400;
+      controls.enablePan = false;
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 0.5;
+      controlsRef.current = controls;
+
+      // Animation loop
+      const animate = () => {
+        if (!mounted) return;
+        
+        requestRef.current = requestAnimationFrame(animate);
+        if (globeRef.current) {
+          globeRef.current.rotation.y += 0.001;
+          // Rotate clouds
+          const cloudsMesh = globeRef.current.children.find(
+            child => child instanceof THREE.Mesh && child.material.transparent
+          );
+          if (cloudsMesh) {
+            cloudsMesh.rotation.y += 0.0005;
+          }
+        }
+        controls.update();
+        renderer.render(scene, camera);
+      };
+
+      animate();
+    };
+
+    init();
+
     return () => {
+      mounted = false;
       if (requestRef.current) {
         cancelAnimationFrame(requestRef.current);
       }
-      if (containerRef.current) {
-        containerRef.current.removeChild(renderer.domElement);
+      
+      // Don't dispose of textures as they'll be reused
+      if (rendererRef.current && containerRef.current) {
+        containerRef.current.removeChild(rendererRef.current.domElement);
       }
-      controls.dispose();
-      renderer.dispose();
-      scene.clear();
+      
+      controlsRef.current?.dispose();
+      rendererRef.current?.dispose();
+      
+      // Clear references
+      globeRef.current = null;
+      sceneRef.current = null;
+      cameraRef.current = null;
+      rendererRef.current = null;
+      controlsRef.current = null;
     };
-  }, [width, height]);
+  }, [width, height, loadTextures]);
 
-  // 気象データの可視化を更新
+  // Update visualization based on weather data
   useEffect(() => {
     if (!globeRef.current || !weatherData || isLoading) return;
 
@@ -203,7 +236,7 @@ const Earth: React.FC<EarthProps> = ({ width, height, displayMode }) => {
       lng: point.longitude,
       size: 0.5,
       color: mapTemperatureToColor(point.temperature).getHexString(),
-      altitude: 0.01  // 高度を最小限に抑える
+      altitude: 0.01
     }));
   
     globeRef.current
@@ -272,16 +305,16 @@ const Earth: React.FC<EarthProps> = ({ width, height, displayMode }) => {
   const updateCompositeVisualization = (data: WeatherData[]) => {
     if (!globeRef.current) return;
   
-    // 温度の可視化（すべてのポイント）
+    // Temperature visualization
     const temperaturePoints = data.map(point => ({
       lat: point.latitude,
       lng: point.longitude,
-      size: 0.4,  // サイズを小さく
+      size: 0.4,
       color: mapTemperatureToColor(point.temperature).getHexString(),
       altitude: 0.01
     }));
   
-    // 降水の可視化（降水量がある場合のみ）
+    // Precipitation visualization
     const precipitationPoints = data
       .filter(point => point.precipitation > 0)
       .map(point => ({
@@ -289,10 +322,10 @@ const Earth: React.FC<EarthProps> = ({ width, height, displayMode }) => {
         lng: point.longitude,
         size: Math.max(0.2, point.precipitation / 50),
         color: mapPrecipitationToColor(point.precipitation).getHexString(),
-        altitude: 0.02  // 温度レイヤーの少し上に
+        altitude: 0.02
       }));
   
-    // 風の可視化
+    // Wind visualization
     const filteredWindData = data
       .filter(point => point.windSpeed > 5)
       .map(point => ({
@@ -302,7 +335,7 @@ const Earth: React.FC<EarthProps> = ({ width, height, displayMode }) => {
         direction: point.windDirection
       }));
   
-    // 既存のパーティクルシステムをクリア
+    // Clear existing particles
     const existingParticles = globeRef.current.children.find(
       (child: THREE.Object3D) => child.type === 'Points'
     );
@@ -310,7 +343,7 @@ const Earth: React.FC<EarthProps> = ({ width, height, displayMode }) => {
       globeRef.current.remove(existingParticles);
     }
   
-    // すべての可視化を適用
+    // Apply all visualizations
     globeRef.current
       .hexPolygonsData([])
       .pointsData([...temperaturePoints, ...precipitationPoints])
@@ -320,13 +353,12 @@ const Earth: React.FC<EarthProps> = ({ width, height, displayMode }) => {
       .pointsMerge(true)
       .pointResolution(2);
   
-    // 風のパーティクルシステムを追加
+    // Add wind particle system
     const particleSystem = createParticleSystem(filteredWindData);
     globeRef.current.add(particleSystem);
   };
   
   if (error) {
-    console.error('Error in Earth component:', error);
     return <div className="text-white p-4">Error loading weather data: {error.message}</div>;
   }
 

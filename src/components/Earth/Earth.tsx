@@ -197,15 +197,15 @@ const Earth: React.FC<EarthProps> = ({ width, height, displayMode }) => {
 
   const updateTemperatureVisualization = (data: WeatherData[]) => {
     if (!globeRef.current) return;
-
+  
     const points = data.map(point => ({
       lat: point.latitude,
       lng: point.longitude,
       size: 0.5,
       color: mapTemperatureToColor(point.temperature).getHexString(),
-      altitude: 0.1
+      altitude: 0.01  // 高度を最小限に抑える
     }));
-
+  
     globeRef.current
       .hexPolygonsData([])
       .pointsData(points)
@@ -215,18 +215,23 @@ const Earth: React.FC<EarthProps> = ({ width, height, displayMode }) => {
       .pointsMerge(true)
       .pointResolution(2);
   };
-
+  
   const updatePrecipitationVisualization = (data: WeatherData[]) => {
     if (!globeRef.current) return;
-
-    const points = data.map(point => ({
-      lat: point.latitude,
-      lng: point.longitude,
-      size: Math.max(0.5, point.precipitation / 10),
-      color: mapPrecipitationToColor(point.precipitation).getHexString(),
-      altitude: Math.max(0.1, point.precipitation / 50)
-    }));
-
+  
+    const points = data
+      .filter(point => point.precipitation > 0)
+      .map(point => {
+        const intensity = Math.min(point.precipitation / 100, 1);
+        return {
+          lat: point.latitude,
+          lng: point.longitude,
+          size: Math.max(0.2, intensity * 2),
+          color: mapPrecipitationToColor(point.precipitation).getHexString(),
+          altitude: 0.01
+        };
+      });
+  
     globeRef.current
       .hexPolygonsData([])
       .pointsData(points)
@@ -236,68 +241,67 @@ const Earth: React.FC<EarthProps> = ({ width, height, displayMode }) => {
       .pointsMerge(true)
       .pointResolution(2);
   };
-
+  
   const updateWindVisualization = (data: WeatherData[]) => {
     if (!globeRef.current) return;
-
-    // 既存のパーティクルシステムをクリア
+  
     const existingParticles = globeRef.current.children.find(
       (child: THREE.Object3D) => child.type === 'Points'
     );
     if (existingParticles) {
       globeRef.current.remove(existingParticles);
     }
-
-    // 風データの準備
-    const windData = data.map(point => ({
-      latitude: point.latitude,
-      longitude: point.longitude,
-      speed: point.windSpeed,
-      direction: point.windDirection
-    }));
-
-    // パーティクルシステムの作成と追加
-    const particleSystem = createParticleSystem(windData);
+  
+    const filteredWindData = data
+      .filter(point => point.windSpeed > 5)
+      .map(point => ({
+        latitude: point.latitude,
+        longitude: point.longitude,
+        speed: point.windSpeed,
+        direction: point.windDirection
+      }));
+  
+    const particleSystem = createParticleSystem(filteredWindData);
     globeRef.current.add(particleSystem);
-
-    // その他の可視化をクリア
+  
     globeRef.current
       .hexPolygonsData([])
-      .pointsData([])
-      .customLayerData([]);
+      .pointsData([]);
   };
-
+  
   const updateCompositeVisualization = (data: WeatherData[]) => {
     if (!globeRef.current) return;
-
-    // 温度の可視化
+  
+    // 温度の可視化（すべてのポイント）
     const temperaturePoints = data.map(point => ({
       lat: point.latitude,
       lng: point.longitude,
-      size: 0.5,
+      size: 0.4,  // サイズを小さく
       color: mapTemperatureToColor(point.temperature).getHexString(),
-      altitude: 0.1
+      altitude: 0.01
     }));
-
-    // 降水の可視化 (降水量がある場合のみ)
+  
+    // 降水の可視化（降水量がある場合のみ）
     const precipitationPoints = data
       .filter(point => point.precipitation > 0)
       .map(point => ({
         lat: point.latitude,
         lng: point.longitude,
-        size: Math.max(0.3, point.precipitation / 15),
+        size: Math.max(0.2, point.precipitation / 50),
         color: mapPrecipitationToColor(point.precipitation).getHexString(),
-        altitude: 0.15
+        altitude: 0.02  // 温度レイヤーの少し上に
       }));
-
+  
     // 風の可視化
-    const windData = data.map(point => ({
-      latitude: point.latitude,
-      longitude: point.longitude,
-      speed: point.windSpeed,
-      direction: point.windDirection
-    }));
-
+    const filteredWindData = data
+      .filter(point => point.windSpeed > 5)
+      .map(point => ({
+        latitude: point.latitude,
+        longitude: point.longitude,
+        speed: point.windSpeed,
+        direction: point.windDirection
+      }));
+  
     // 既存のパーティクルシステムをクリア
     const existingParticles = globeRef.current.children.find(
       (child: THREE.Object3D) => child.type === 'Points'
@@ -305,7 +309,7 @@ const Earth: React.FC<EarthProps> = ({ width, height, displayMode }) => {
     if (existingParticles) {
       globeRef.current.remove(existingParticles);
     }
-
+  
     // すべての可視化を適用
     globeRef.current
       .hexPolygonsData([])
@@ -315,11 +319,12 @@ const Earth: React.FC<EarthProps> = ({ width, height, displayMode }) => {
       .pointRadius('size')
       .pointsMerge(true)
       .pointResolution(2);
-
-    const particleSystem = createParticleSystem(windData);
+  
+    // 風のパーティクルシステムを追加
+    const particleSystem = createParticleSystem(filteredWindData);
     globeRef.current.add(particleSystem);
   };
-
+  
   if (error) {
     console.error('Error in Earth component:', error);
     return <div className="text-white p-4">Error loading weather data: {error.message}</div>;

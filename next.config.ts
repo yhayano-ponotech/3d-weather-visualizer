@@ -8,6 +8,9 @@ const config: NextConfig = {
     OPEN_METEO_API_URL: process.env.OPEN_METEO_API_URL as string,
     OPEN_WEATHER_MAP_API_KEY: process.env.OPEN_WEATHER_MAP_API_KEY as string,
   },
+  images: {
+    domains: ['unpkg.com'], // 外部画像を使用する場合
+  },
 };
 
 export default config;

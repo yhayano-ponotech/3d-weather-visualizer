@@ -5,7 +5,7 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: '3D Weather Globe',
+  title: 'Weather Globe',
   description: 'Real-time weather visualization in 3D',
 };
 
@@ -16,7 +16,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>{children}</body>
+      <body className={`${inter.className} bg-black text-white`}>
+        {children}
+      </body>
     </html>
   );
 }

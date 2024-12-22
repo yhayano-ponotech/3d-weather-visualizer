@@ -16,14 +16,16 @@ export interface WindData {
   direction: number;
 }
 
-export interface WeatherResponse {
+export interface OpenMeteoResponse {
   latitude: number;
   longitude: number;
-  current: {
-    temperature_2m: number;
-    precipitation: number;
-    windspeed_10m: number;
-    winddirection_10m: number;
+  current_weather: {
+    temperature: number;
+    windspeed: number;
+    winddirection: number;
+  };
+  hourly: {
+    precipitation: number[];
   };
 }
 
